@@ -38,5 +38,9 @@
 		"onlyBuiltDependencies": [
 			"esbuild"
 		]
+	},
+	"dependencies": {
+		"@mapray/mapray-js": "^0.9.6",
+		"@mapray/ui": "^0.9.6"
 	}
 }
