@@ -2,18 +2,24 @@
 	import { onDestroy } from 'svelte';
 	import mapray from '@mapray/mapray-js';
 
-	let {
-		url,
-		scene,
-		options = $bindable({})
-	}: { url: string; scene: mapray.Scene; options?: any } = $props();
+	let { url, scene, options = {} }: { url: string; scene: mapray.Scene; options?: any } = $props();
 
 	let loader: mapray.GeoJSONLoader | null = null;
 
 	// optionsやurlが変更されるたびにこの$effectが再実行される
 	$effect(() => {
+		// optionsが関数の場合、依存関係を明示的に追跡するために呼び出す
+		const optionsValue = typeof options === 'function' ? options() : options;
 
-		console.log(options.getFillColor);
+		console.log('Effect triggered, optionsValue:', optionsValue);
+		console.log('optionsValue.getFillColor:', optionsValue.getFillColor);
+
+		// optionsが空の場合は処理をスキップ
+		if (!optionsValue || !optionsValue.getFillColor) {
+			console.log('Skipping: options or getFillColor is not available');
+			return;
+		}
+
 		// 前回のloaderインスタンスが残っていれば破棄する
 		if (loader) {
 			loader = null;
@@ -22,32 +28,37 @@
 		// 新しいオプションでGeoJSONLoaderを再生成する非同期関数
 		async function addGeoJSONLayer() {
 			try {
+				console.log('Creating new GeoJSONLoader with updated options');
 				loader = new mapray.GeoJSONLoader(scene, url, {
 					// 各コールバック関数は常に最新のoptionsを参照するように修正
 					getFillColor: (geojson: any) => {
-						return options.getFillColor?.(geojson) || geojson.properties?.color || [1.0, 0.0, 0.0];
+						const opts = typeof options === 'function' ? options() : options;
+						return opts.getFillColor?.(geojson) || geojson.properties?.color || [1.0, 0.0, 0.0];
 					},
 					getLineColor: (geojson: any) => {
-						return (
-							options.getLineColor?.(geojson) || geojson.properties?.lineColor || [0.0, 0.0, 1.0]
-						);
+						const opts = typeof options === 'function' ? options() : options;
+						return opts.getLineColor?.(geojson) || geojson.properties?.lineColor || [0.0, 0.0, 1.0];
 					},
 					getPointFGColor: (geojson: any) => {
+						const opts = typeof options === 'function' ? options() : options;
 						return (
-							options.getPointFGColor?.(geojson) ||
-							geojson.properties?.pointFGColor || [0.0, 1.0, 0.0]
+							opts.getPointFGColor?.(geojson) || geojson.properties?.pointFGColor || [0.0, 1.0, 0.0]
 						);
 					},
 					getPointBGColor: (geojson: any) => {
+						const opts = typeof options === 'function' ? options() : options;
 						return (
-							options.getPointBGColor?.(geojson) ||
-							geojson.properties?.pointBGColor || [1.0, 1.0, 0.0]
+							opts.getPointBGColor?.(geojson) || geojson.properties?.pointBGColor || [1.0, 1.0, 0.0]
 						);
 					},
 					getLineWidth: (geojson: any) => {
-						return options.lineWidth || geojson.properties?.lineWidth || 2;
+						const opts = typeof options === 'function' ? options() : options;
+						return opts.lineWidth || geojson.properties?.lineWidth || 2;
 					},
-					getAltitudeMode: options.getAltitudeMode || (() => mapray.AltitudeMode.CLAMP)
+					getAltitudeMode: (() => {
+						const opts = typeof options === 'function' ? options() : options;
+						return opts.getAltitudeMode || (() => mapray.AltitudeMode.CLAMP);
+					})()
 				});
 				await loader.load();
 			} catch (err) {
