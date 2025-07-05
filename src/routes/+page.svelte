@@ -170,6 +170,238 @@
 	// 	getLineWidth: () => 3
 	// }));
 
+	// Touch gesture management class
+	class TouchGestureManager {
+		private touches: Map<number, Touch> = new Map();
+		private lastTouchTime: number = 0;
+		private lastCenter: { x: number; y: number } | null = null;
+		private lastDistance: number = 0;
+		private lastAngle: number = 0;
+		
+		updateTouches(touchList: TouchList) {
+			this.touches.clear();
+			for (let i = 0; i < touchList.length; i++) {
+				const touch = touchList[i];
+				this.touches.set(touch.identifier, touch);
+			}
+			this.lastTouchTime = Date.now();
+		}
+		
+		getTouchCount(): number {
+			return this.touches.size;
+		}
+		
+		getCenter(): { x: number; y: number } {
+			const touchArray = Array.from(this.touches.values());
+			const x = touchArray.reduce((sum, touch) => sum + touch.clientX, 0) / touchArray.length;
+			const y = touchArray.reduce((sum, touch) => sum + touch.clientY, 0) / touchArray.length;
+			return { x, y };
+		}
+		
+		detectPan(): { deltaX: number; deltaY: number } | null {
+			if (this.touches.size !== 1 || !this.lastCenter) return null;
+			
+			const center = this.getCenter();
+			const deltaX = center.x - this.lastCenter.x;
+			const deltaY = center.y - this.lastCenter.y;
+			
+			this.lastCenter = center;
+			return { deltaX, deltaY };
+		}
+		
+		detectPinch(): { scale: number } | null {
+			if (this.touches.size !== 2) return null;
+			
+			const touchArray = Array.from(this.touches.values());
+			const dx = touchArray[1].clientX - touchArray[0].clientX;
+			const dy = touchArray[1].clientY - touchArray[0].clientY;
+			const distance = Math.sqrt(dx * dx + dy * dy);
+			
+			if (this.lastDistance === 0) {
+				this.lastDistance = distance;
+				return null;
+			}
+			
+			const scale = distance / this.lastDistance;
+			this.lastDistance = distance;
+			
+			return { scale };
+		}
+		
+		detectRotation(): { angle: number } | null {
+			if (this.touches.size !== 2) return null;
+			
+			const touchArray = Array.from(this.touches.values());
+			const dx = touchArray[1].clientX - touchArray[0].clientX;
+			const dy = touchArray[1].clientY - touchArray[0].clientY;
+			const angle = Math.atan2(dy, dx);
+			
+			if (this.lastAngle === 0) {
+				this.lastAngle = angle;
+				return null;
+			}
+			
+			let deltaAngle = angle - this.lastAngle;
+			// Normalize angle to [-π, π]
+			if (deltaAngle > Math.PI) deltaAngle -= 2 * Math.PI;
+			if (deltaAngle < -Math.PI) deltaAngle += 2 * Math.PI;
+			
+			this.lastAngle = angle;
+			return { angle: deltaAngle };
+		}
+		
+		reset() {
+			this.lastCenter = null;
+			this.lastDistance = 0;
+			this.lastAngle = 0;
+		}
+		
+		startGesture() {
+			const center = this.getCenter();
+			this.lastCenter = center;
+			
+			if (this.touches.size === 2) {
+				const touchArray = Array.from(this.touches.values());
+				const dx = touchArray[1].clientX - touchArray[0].clientX;
+				const dy = touchArray[1].clientY - touchArray[0].clientY;
+				this.lastDistance = Math.sqrt(dx * dx + dy * dy);
+				this.lastAngle = Math.atan2(dy, dx);
+			}
+		}
+	}
+	
+	const gestureManager = new TouchGestureManager();
+	let isGesturing = false;
+	
+	// Touch event handlers
+	function handleTouchStart(event: TouchEvent) {
+		event.preventDefault();
+		gestureManager.updateTouches(event.touches);
+		gestureManager.startGesture();
+		isGesturing = true;
+		
+		// Convert to mouse down for single touch
+		if (event.touches.length === 1) {
+			const touch = event.touches[0];
+			const rect = (event.target as HTMLElement).getBoundingClientRect();
+			const point: [number, number] = [
+				touch.clientX - rect.left,
+				touch.clientY - rect.top
+			];
+			
+			const mouseEvent = new MouseEvent('mousedown', {
+				clientX: touch.clientX,
+				clientY: touch.clientY,
+				button: 0
+			});
+			
+			stdViewer?.onMouseDown(point, mouseEvent);
+		}
+	}
+	
+	function handleTouchMove(event: TouchEvent) {
+		event.preventDefault();
+		gestureManager.updateTouches(event.touches);
+		
+		if (!isGesturing || !stdViewer) return;
+		
+		const touchCount = gestureManager.getTouchCount();
+		
+		if (touchCount === 1) {
+			// Single finger: pan
+			const pan = gestureManager.detectPan();
+			if (pan) {
+				const touch = event.touches[0];
+				const rect = (event.target as HTMLElement).getBoundingClientRect();
+				const point: [number, number] = [
+					touch.clientX - rect.left,
+					touch.clientY - rect.top
+				];
+				
+				const mouseEvent = new MouseEvent('mousemove', {
+					clientX: touch.clientX,
+					clientY: touch.clientY,
+					movementX: pan.deltaX,
+					movementY: pan.deltaY
+				});
+				
+				stdViewer.onMouseMove(point, mouseEvent);
+			}
+		} else if (touchCount === 2) {
+			// Two fingers: pinch zoom and rotation
+			const pinch = gestureManager.detectPinch();
+			const rotation = gestureManager.detectRotation();
+			const center = gestureManager.getCenter();
+			const rect = (event.target as HTMLElement).getBoundingClientRect();
+			const point: [number, number] = [
+				center.x - rect.left,
+				center.y - rect.top
+			];
+			
+			if (pinch) {
+				// Simulate mouse wheel for zoom
+				const wheelDelta = (pinch.scale - 1) * 500;
+				const wheelEvent = new WheelEvent('wheel', {
+					clientX: center.x,
+					clientY: center.y,
+					deltaY: -wheelDelta
+				});
+				
+				stdViewer.onMouseWheel(point, wheelEvent);
+			}
+			
+			if (rotation) {
+				// Apply rotation to camera
+				const currentAngle = stdViewer.getCameraAngle();
+				stdViewer.setCameraAngle({
+					roll: currentAngle.roll,
+					pitch: currentAngle.pitch,
+					yaw: currentAngle.yaw + (rotation.angle * 180 / Math.PI)
+				});
+			}
+		} else if (touchCount === 3) {
+			// Three fingers: tilt/pitch
+			const pan = gestureManager.detectPan();
+			if (pan) {
+				const currentAngle = stdViewer.getCameraAngle();
+				stdViewer.setCameraAngle({
+					roll: currentAngle.roll,
+					pitch: Math.max(0, Math.min(90, currentAngle.pitch + pan.deltaY * 0.5)),
+					yaw: currentAngle.yaw
+				});
+			}
+		}
+	}
+	
+	function handleTouchEnd(event: TouchEvent) {
+		event.preventDefault();
+		
+		// Convert to mouse up for single touch ending
+		if (event.touches.length === 0 && event.changedTouches.length === 1) {
+			const touch = event.changedTouches[0];
+			const rect = (event.target as HTMLElement).getBoundingClientRect();
+			const point: [number, number] = [
+				touch.clientX - rect.left,
+				touch.clientY - rect.top
+			];
+			
+			const mouseEvent = new MouseEvent('mouseup', {
+				clientX: touch.clientX,
+				clientY: touch.clientY,
+				button: 0
+			});
+			
+			stdViewer?.onMouseUp(point, mouseEvent);
+		}
+		
+		gestureManager.updateTouches(event.touches);
+		
+		if (event.touches.length === 0) {
+			isGesturing = false;
+			gestureManager.reset();
+		}
+	}
+
 	// Run after the component is mounted
 	onMount(() => {
 		if (!mapContainer) {
@@ -227,8 +459,23 @@
 		// pin.addMakiIconPin('mountain-15', mtFujiPosition);
 		stdViewer.addEntity(pin);
 
+		// Add touch event listeners for mobile support
+		const canvas = mapContainer.querySelector('canvas');
+		if (canvas) {
+			canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
+			canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
+			canvas.addEventListener('touchend', handleTouchEnd, { passive: false });
+		}
+
 		// Return a cleanup function to be called when the component is destroyed
 		return () => {
+			// Remove touch event listeners
+			if (canvas) {
+				canvas.removeEventListener('touchstart', handleTouchStart);
+				canvas.removeEventListener('touchmove', handleTouchMove);
+				canvas.removeEventListener('touchend', handleTouchEnd);
+			}
+			
 			if (stdViewer) {
 				stdViewer.destroy();
 				stdViewer = null;
