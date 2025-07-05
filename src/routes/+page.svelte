@@ -41,17 +41,17 @@
 				yaw: 25
 			}
 		},
-		{
-			id: '5107296979910656',
-			name: 'ALB測量',
-			camera: {
-				longitude: 131.153185,
-				latitude: 33.420539,
-				height: 230,
-				pitch: 65,
-				yaw: 5
-			}
-		}
+		// {
+		// 	id: '5107296979910656',
+		// 	name: 'ALB測量',
+		// 	camera: {
+		// 		longitude: 131.153185,
+		// 		latitude: 33.420539,
+		// 		height: 230,
+		// 		pitch: 65,
+		// 		yaw: 5
+		// 	}
+		// }
 	];
 
 	let selectedDatasetId = $state('5153900512411648');
